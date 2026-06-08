@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+   url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+
+  // Relations
+  teamId        String?
+  team          Team?     @relation(fields: [teamId], references: [id])
+  meetings      Meeting[]
+  tasks         Task[]    @relation("AssignedTasks")
+  notifications Notification[]
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Team {
+  id         String    @id @default(cuid())
+  name       String
+  inviteCode String    @unique @default(cuid())
+  createdAt  DateTime  @default(now())
+
+  // Relations
+  members    User[]
+  meetings   Meeting[]
+}
+
+model Meeting {
+  id        String   @id @default(cuid())
+  title     String
+  date      DateTime @default(now())
+  rawNotes  String?  @db.Text
+  summary   String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId    String?
+  team      Team?    @relation(fields: [teamId], references: [id])
+  tasks     Task[]
+}
+
+model Task {
+  id        String     @id @default(cuid())
+  title     String
+  status    TaskStatus @default(TODO)
+  priority  Priority   @default(MEDIUM)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  // Relations
+  meetingId  String?
+  meeting    Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  assigneeId String?
+  assignee   User?     @relation("AssignedTasks", fields: [assigneeId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Relations
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// These 2 models are REQUIRED by Auth.js — don't modify them
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Enums — fixed set of allowed values
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
