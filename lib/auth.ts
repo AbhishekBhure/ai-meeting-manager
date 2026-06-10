@@ -19,6 +19,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   pages: {
     signIn: "/login",
+    error: "/error",
   },
   callbacks: {
     // jwt callback runs when token is created or updated
