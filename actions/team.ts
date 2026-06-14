@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import prisma from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
+import { pusherServer } from "@/lib/pusher-server"
 
 // CREATE TEAM
 export async function createTeam(formData: FormData) {
@@ -98,21 +99,85 @@ export async function joinTeam(inviteCode: string) {
       userId: member.id,
       message: `${session.user.name} joined your team!`,
     })),
-  })
+  });
+
+  // Trigger real-time Pusher event for each member
+for (const member of team.members) {
+  await pusherServer.trigger(
+    `user-${member.id}`,
+    "new-notification",
+    { message: `${session.user.name} joined your team!` }
+  )
+}
 
   revalidatePath("/team")
   redirect("/team")
 }
 
 // LEAVE TEAM
+// export async function leaveTeam() {
+//   const session = await auth()
+//   if (!session?.user?.id) redirect("/login")
+
+//   await prisma.user.update({
+//     where: { id: session.user.id },
+//     data: { teamId: null },
+//   })
+
+//   revalidatePath("/team")
+//   redirect("/team")
+// }
+
 export async function leaveTeam() {
   const session = await auth()
   if (!session?.user?.id) redirect("/login")
 
+  // Get team and members BEFORE removing the user
+  // After removal, we won't have access to team info anymore
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    include: {
+      team: {
+        include: {
+          members: true,
+        },
+      },
+    },
+  })
+
+  if (!user?.team) {
+    throw new Error("You are not in a team")
+  }
+
+  const teamMembers = user.team.members.filter(
+    (m) => m.id !== session.user.id // exclude the leaving user
+  )
+
+  // Remove user from team
   await prisma.user.update({
     where: { id: session.user.id },
     data: { teamId: null },
   })
+
+  // Notify remaining members
+  if (teamMembers.length > 0) {
+    // Save to DB
+    await prisma.notification.createMany({
+      data: teamMembers.map((member) => ({
+        userId: member.id,
+        message: `${session.user.name} left the team.`,
+      })),
+    })
+
+    // Push real-time event to each remaining member
+    for (const member of teamMembers) {
+      await pusherServer.trigger(
+        `user-${member.id}`,
+        "new-notification",
+        { message: `${session.user.name} left the team.` }
+      )
+    }
+  }
 
   revalidatePath("/team")
   redirect("/team")

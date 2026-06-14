@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { leaveTeam } from "@/actions/team"
 import { useRouter } from "next/navigation"
 
@@ -24,10 +24,14 @@ interface TeamDashboardProps {
 
 export default function TeamDashboard({ team }: TeamDashboardProps) {
   const [copied, setCopied] = useState(false)
-  const [isLeaving, setIsLeaving] = useState(false)
+  const [isLeaving, setIsLeaving] = useState(false);
   const router = useRouter()
 
-  const inviteLink = `${window.location.origin}/invite/${team.inviteCode}`
+
+
+  const inviteLink = typeof window !== "undefined"
+  ? `${window.location.origin}/invite/${team.inviteCode}`
+  : ""
 
   async function handleCopyLink() {
     await navigator.clipboard.writeText(inviteLink)

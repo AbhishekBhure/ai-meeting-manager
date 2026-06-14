@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import prisma from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { TaskStatus } from "@prisma/client"
+import { pusherServer } from "@/lib/pusher-server"
 
 
 // GET ALL TASKS for current user
@@ -119,6 +120,15 @@ export async function assignTask(taskId: string, assigneeId: string | null) {
       },
     })
   }
+
+  // Trigger real-time event
+  await pusherServer.trigger(
+    `user-${assigneeId}`,
+    "new-notification",
+    {
+      message: `${session.user.name} assigned you a task: "${task.title}"`,
+    }
+  )
 
   revalidatePath("/tasks")
 }

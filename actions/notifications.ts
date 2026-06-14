@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import prisma from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
+import { pusherServer } from "@/lib/pusher-server"
 
 // GET ALL NOTIFICATIONS for current user
 export async function getNotifications() {
@@ -20,18 +21,37 @@ export async function getNotifications() {
 }
 
 // GET UNREAD COUNT — used for the bell badge
-export async function getUnreadCount() {
-  const session = await auth()
-  if (!session?.user?.id) return 0
+// export async function getUnreadCount(): Promise<number> {
+//   const session = await auth()
+//   if (!session?.user?.id) return 0
 
-  const count = await prisma.notification.count({
-    where: {
-      userId: session.user.id,
-      read: false,
-    },
-  })
+//   const count = await prisma.notification.count({
+//     where: {
+//       userId: session.user.id,
+//       read: false,
+//     },
+//   })
 
-  return count
+//   return count
+// }
+
+export async function getUnreadCount(): Promise<number> {
+  try {
+    const session = await auth()
+    if (!session?.user?.id) return 0
+
+    const count = await prisma.notification.count({
+      where: {
+        userId: session.user.id,
+        read: false,
+      },
+    })
+
+    return count
+  } catch {
+    // If anything fails, return 0 instead of crashing the layout
+    return 0
+  }
 }
 
 // MARK ALL AS READ
@@ -61,4 +81,15 @@ export async function markAsRead(notificationId: string) {
   })
 
   revalidatePath("/notifications")
+}
+
+// Helper — trigger a real-time notification event
+// channelName: unique per user so only they receive their notifications
+// We use user's ID to make the channel private to them
+export async function triggerNotification(userId: string, message: string) {
+  await pusherServer.trigger(
+    `user-${userId}`,     // channel name — unique per user
+    "new-notification",   // event name — what we listen for on client
+    { message }           // data — what we send
+  )
 }
