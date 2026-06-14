@@ -11,15 +11,18 @@ export default async function InvitePage({ params }: PageProps) {
   const { code } = await params
   const session = await auth()
 
-  // Must be logged in to join
   if (!session) redirect(`/login?callbackUrl=/invite/${code}`)
 
-  // Find the team
+  // Find the team with new schema
   const team = await prisma.team.findUnique({
     where: { inviteCode: code },
     include: {
       members: {
-        select: { id: true, name: true, image: true },
+        include: {
+          user: {
+            select: { id: true, name: true, image: true },
+          },
+        },
       },
     },
   })
@@ -40,8 +43,8 @@ export default async function InvitePage({ params }: PageProps) {
     )
   }
 
-  // Check if already a member
-  const isMember = team.members.some((m) => m.id === session.user.id)
+  // Check if already a member using new TeamMember table
+  const isMember = team.members.some((m) => m.user.id === session.user.id)
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-950">
@@ -51,17 +54,18 @@ export default async function InvitePage({ params }: PageProps) {
           Join {team.name}
         </h1>
         <p className="mt-2 text-gray-400">
-          {team.members.length} member{team.members.length !== 1 ? "s" : ""} already in this team
+          {team.members.length} member
+          {team.members.length !== 1 ? "s" : ""} already in this team
         </p>
 
         {/* Member avatars */}
         <div className="my-6 flex justify-center -space-x-2">
-          {team.members.slice(0, 5).map((member) => (
-            member.image ? (
+          {team.members.slice(0, 5).map((member) =>
+            member.user.image ? (
               <img
                 key={member.id}
-                src={member.image}
-                alt={member.name ?? "Member"}
+                src={member.user.image}
+                alt={member.user.name ?? "Member"}
                 className="h-10 w-10 rounded-full border-2 border-gray-900"
               />
             ) : (
@@ -69,10 +73,10 @@ export default async function InvitePage({ params }: PageProps) {
                 key={member.id}
                 className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-gray-900 bg-gray-700 text-sm text-white"
               >
-                {member.name?.[0] ?? "?"}
+                {member.user.name?.[0] ?? "?"}
               </div>
             )
-          ))}
+          )}
         </div>
 
         {isMember ? (
