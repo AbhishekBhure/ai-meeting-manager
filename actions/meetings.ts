@@ -39,17 +39,47 @@ export async function createMeeting(formData: FormData) {
 }
 
 // READ ALL — get all meetings for the current user
+// export async function getMeetings() {
+//   const session = await auth()
+//   if (!session?.user?.id) redirect("/login")
+
+//   const meetings = await prisma.meeting.findMany({
+//     where: {
+//       userId: session.user.id,
+//     },
+//     orderBy: {
+//       date: "desc", // newest first
+//     },
+//   })
+
+//   return meetings
+// }
+
 export async function getMeetings() {
   const session = await auth()
   if (!session?.user?.id) redirect("/login")
 
+  // Get user's teamId
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { teamId: true },
+  })
+
   const meetings = await prisma.meeting.findMany({
     where: {
-      userId: session.user.id,
+      OR: [
+        // User's own meetings
+        { userId: session.user.id },
+        // Team meetings (if user is in a team)
+        ...(user?.teamId ? [{ teamId: user.teamId }] : []),
+      ],
     },
-    orderBy: {
-      date: "desc", // newest first
+    include: {
+      user: {
+        select: { id: true, name: true, image: true },
+      },
     },
+    orderBy: { date: "desc" },
   })
 
   return meetings

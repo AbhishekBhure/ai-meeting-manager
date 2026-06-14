@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
 
+
 // TypeScript — define the shape of the user prop
 interface SidebarProps {
   user: {
@@ -11,6 +12,7 @@ interface SidebarProps {
     email?: string | null
     image?: string | null
   }
+   unreadCount: number
 }
 
 // Navigation items — easy to add more later
@@ -19,9 +21,10 @@ const navItems = [
   { label: "Meetings", href: "/meetings", icon: "📋" },
   { label: "Tasks", href: "/tasks", icon: "✓" },
   { label: "Team", href: "/team", icon: "👥" },
+  { label: "Notifications", href: "/notifications", icon: "🔔" },
 ]
 
-export default function Sidebar({ user }: SidebarProps) {
+export default function Sidebar({ user,unreadCount }: SidebarProps) {
   // usePathname — tells us the current URL path
   // Used to highlight the active nav item
   const pathname = usePathname()
@@ -53,6 +56,13 @@ export default function Sidebar({ user }: SidebarProps) {
             >
               <span>{item.icon}</span>
               {item.label}
+
+               {/* Show badge only on Notifications link */}
+              {item.href === "/notifications" && unreadCount > 0 && (
+                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </Link>
           )
         })}

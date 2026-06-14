@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
+import { getUnreadCount } from "@/actions/notifications"
 import Sidebar from "@/components/layout/Sidebar"
 
 export default async function DashboardLayout({
@@ -10,11 +11,14 @@ export default async function DashboardLayout({
   const session = await auth()
 
   // Protect all dashboard pages at the layout level
-  if (!session) redirect("/login")
+  if (!session) redirect("/login");
+
+    // Fetch unread count server-side and pass as prop
+  const unreadCount = await getUnreadCount()
 
   return (
     <div className="flex min-h-screen bg-gray-950">
-      <Sidebar user={session.user} />
+      <Sidebar user={session.user} unreadCount={unreadCount} />
       <main className="flex-1 overflow-y-auto">
         {children}
       </main>

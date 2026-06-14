@@ -7,7 +7,8 @@ export default authEdge((req) => {
 
   const isPublicRoute =
     pathname === "/login" ||
-    pathname.startsWith("/api/auth")
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/invite")
 
   // Allow public routes through freely
   if (isPublicRoute) {
