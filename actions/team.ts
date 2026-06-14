@@ -4,7 +4,45 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import prisma from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
+import { TeamRole } from "@prisma/client"
 import { pusherServer } from "@/lib/pusher-server"
+
+// Helper — get current user's membership in their team
+// Returns null if user is not in any team
+export async function getMyMembership() {
+  const session = await auth()
+  if (!session?.user?.id) return null
+
+  const membership = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id },
+    include: {
+      team: {
+        include: {
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  image: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  return membership
+}
+
+// GET CURRENT USER'S TEAM
+export async function getMyTeam() {
+  const membership = await getMyMembership()
+  return membership?.team ?? null
+}
 
 // CREATE TEAM
 export async function createTeam(formData: FormData) {
@@ -17,53 +55,31 @@ export async function createTeam(formData: FormData) {
   }
 
   // Check if user already has a team
-  const existingUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { teamId: true },
+  const existingMembership = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id },
   })
 
-  if (existingUser?.teamId) {
+  if (existingMembership) {
     throw new Error("You are already in a team")
   }
 
-  // Create team and add current user as first member
+  // Create team with current user as OWNER
   const team = await prisma.team.create({
     data: {
       name: name.trim(),
+      ownerId: session.user.id,
       members: {
-        connect: { id: session.user.id },
+        create: {
+          userId: session.user.id,
+          role: TeamRole.OWNER,
+          canChat: true,
+        },
       },
     },
   })
 
   revalidatePath("/team")
   return team
-}
-
-// GET CURRENT USER'S TEAM
-export async function getMyTeam() {
-  const session = await auth()
-  if (!session?.user?.id) redirect("/login")
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: {
-      team: {
-        include: {
-          members: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
-            },
-          },
-        },
-      },
-    },
-  })
-
-  return user?.team ?? null
 }
 
 // JOIN TEAM VIA INVITE CODE
@@ -74,68 +90,64 @@ export async function joinTeam(inviteCode: string) {
   // Find team by invite code
   const team = await prisma.team.findUnique({
     where: { inviteCode },
-    include: { members: true },
+    include: {
+      members: {
+        include: {
+          user: { select: { id: true, name: true } },
+        },
+      },
+    },
   })
 
-  if (!team) {
-    throw new Error("Invalid invite code")
-  }
+  if (!team) throw new Error("Invalid invite code")
 
   // Check if already a member
-  const isMember = team.members.some((m) => m.id === session.user.id)
-  if (isMember) {
-    redirect("/team")
-  }
+  const isMember = team.members.some((m) => m.userId === session.user.id)
+  if (isMember) redirect("/team")
 
-  // Add user to team
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { teamId: team.id },
+  // Add user as MEMBER
+  await prisma.teamMember.create({
+    data: {
+      userId: session.user.id,
+      teamId: team.id,
+      role: TeamRole.MEMBER,
+      canChat: true,
+    },
   })
 
   // Notify existing members
-  await prisma.notification.createMany({
-    data: team.members.map((member) => ({
-      userId: member.id,
-      message: `${session.user.name} joined your team!`,
-    })),
-  });
-
-  // Trigger real-time Pusher event for each member
-for (const member of team.members) {
-  await pusherServer.trigger(
-    `user-${member.id}`,
-    "new-notification",
-    { message: `${session.user.name} joined your team!` }
+  const otherMembers = team.members.filter(
+    (m) => m.userId !== session.user.id
   )
-}
+
+  if (otherMembers.length > 0) {
+    await prisma.notification.createMany({
+      data: otherMembers.map((m) => ({
+        userId: m.userId,
+        message: `${session.user.name} joined your team!`,
+      })),
+    })
+
+    for (const m of otherMembers) {
+      await pusherServer.trigger(
+        `user-${m.userId}`,
+        "new-notification",
+        { message: `${session.user.name} joined your team!` }
+      )
+    }
+  }
 
   revalidatePath("/team")
   redirect("/team")
 }
 
 // LEAVE TEAM
-// export async function leaveTeam() {
-//   const session = await auth()
-//   if (!session?.user?.id) redirect("/login")
-
-//   await prisma.user.update({
-//     where: { id: session.user.id },
-//     data: { teamId: null },
-//   })
-
-//   revalidatePath("/team")
-//   redirect("/team")
-// }
-
 export async function leaveTeam() {
   const session = await auth()
   if (!session?.user?.id) redirect("/login")
 
-  // Get team and members BEFORE removing the user
-  // After removal, we won't have access to team info anymore
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+  const membership = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id },
     include: {
       team: {
         include: {
@@ -145,39 +157,205 @@ export async function leaveTeam() {
     },
   })
 
-  if (!user?.team) {
-    throw new Error("You are not in a team")
+  if (!membership) throw new Error("You are not in a team")
+
+  // Owner cannot leave — must delete team or transfer ownership
+  if (membership.role === TeamRole.OWNER) {
+    throw new Error(
+      "You are the owner. Transfer ownership or delete the team first."
+    )
   }
 
-  const teamMembers = user.team.members.filter(
-    (m) => m.id !== session.user.id // exclude the leaving user
-  )
-
-  // Remove user from team
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { teamId: null },
+  // Remove membership
+  await prisma.teamMember.delete({
+    where: { id: membership.id },
   })
 
   // Notify remaining members
-  if (teamMembers.length > 0) {
-    // Save to DB
+  const remainingMembers = membership.team.members.filter(
+    (m) => m.userId !== session.user.id
+  )
+
+  if (remainingMembers.length > 0) {
     await prisma.notification.createMany({
-      data: teamMembers.map((member) => ({
-        userId: member.id,
+      data: remainingMembers.map((m) => ({
+        userId: m.userId,
         message: `${session.user.name} left the team.`,
       })),
     })
 
-    // Push real-time event to each remaining member
-    for (const member of teamMembers) {
+    for (const m of remainingMembers) {
       await pusherServer.trigger(
-        `user-${member.id}`,
+        `user-${m.userId}`,
         "new-notification",
         { message: `${session.user.name} left the team.` }
       )
     }
   }
+
+  revalidatePath("/team")
+  redirect("/team")
+}
+
+// KICK MEMBER — OWNER only
+export async function kickMember(targetUserId: string) {
+  const session = await auth()
+  if (!session?.user?.id) redirect("/login")
+
+  // Verify caller is OWNER
+  const callerMembership = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id },
+  })
+
+  if (!callerMembership || callerMembership.role !== TeamRole.OWNER) {
+    throw new Error("Only the team owner can kick members")
+  }
+
+  // Delete target's membership
+  await prisma.teamMember.deleteMany({
+    where: {
+      userId: targetUserId,
+      teamId: callerMembership.teamId,
+    },
+  })
+
+  // Notify the kicked user
+  await prisma.notification.create({
+    data: {
+      userId: targetUserId,
+      message: "You have been removed from the team.",
+    },
+  })
+
+  await pusherServer.trigger(
+    `user-${targetUserId}`,
+    "new-notification",
+    { message: "You have been removed from the team." }
+  )
+
+  revalidatePath("/team")
+}
+
+// CHANGE ROLE — OWNER only
+export async function changeMemberRole(
+  targetUserId: string,
+  newRole: TeamRole
+) {
+  const session = await auth()
+  if (!session?.user?.id) redirect("/login")
+
+  // Verify caller is OWNER
+  const callerMembership = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id },
+  })
+
+  if (!callerMembership || callerMembership.role !== TeamRole.OWNER) {
+    throw new Error("Only the team owner can change roles")
+  }
+
+  // Cannot change owner's own role
+  if (targetUserId === session.user.id) {
+    throw new Error("Cannot change your own role")
+  }
+
+  await prisma.teamMember.updateMany({
+    where: {
+      userId: targetUserId,
+      teamId: callerMembership.teamId,
+    },
+    data: { role: newRole },
+  })
+
+  revalidatePath("/team")
+}
+
+// TOGGLE CHAT PERMISSION — OWNER only
+export async function toggleChatPermission(
+  targetUserId: string,
+  canChat: boolean
+) {
+  const session = await auth()
+  if (!session?.user?.id) redirect("/login")
+
+  // Verify caller is OWNER
+  const callerMembership = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id },
+  })
+
+  if (!callerMembership || callerMembership.role !== TeamRole.OWNER) {
+    throw new Error("Only the team owner can change chat permissions")
+  }
+
+  await prisma.teamMember.updateMany({
+    where: {
+      userId: targetUserId,
+      teamId: callerMembership.teamId,
+    },
+    data: { canChat },
+  })
+
+  // Notify the affected user
+  await prisma.notification.create({
+    data: {
+      userId: targetUserId,
+      message: canChat
+        ? "You can now send messages in the team chat."
+        : "Your chat permission has been revoked.",
+    },
+  })
+
+  await pusherServer.trigger(
+    `user-${targetUserId}`,
+    "new-notification",
+    {
+      message: canChat
+        ? "You can now send messages in the team chat."
+        : "Your chat permission has been revoked.",
+    }
+  )
+
+  revalidatePath("/team")
+}
+
+// DELETE TEAM — OWNER only
+export async function deleteTeam() {
+  const session = await auth()
+  if (!session?.user?.id) redirect("/login")
+
+  const membership = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id },
+    include: { team: { include: { members: true } } },
+  })
+
+  if (!membership || membership.role !== TeamRole.OWNER) {
+    throw new Error("Only the team owner can delete the team")
+  }
+
+  // Notify all members before deletion
+  const otherMembers = membership.team.members.filter(
+    (m) => m.userId !== session.user.id
+  )
+
+  if (otherMembers.length > 0) {
+    await prisma.notification.createMany({
+      data: otherMembers.map((m) => ({
+        userId: m.userId,
+        message: `The team "${membership.team.name}" has been deleted.`,
+      })),
+    })
+
+    for (const m of otherMembers) {
+      await pusherServer.trigger(
+        `user-${m.userId}`,
+        "new-notification",
+        { message: `The team "${membership.team.name}" has been deleted.` }
+      )
+    }
+  }
+
+  await prisma.team.delete({
+    where: { id: membership.teamId },
+  })
 
   revalidatePath("/team")
   redirect("/team")

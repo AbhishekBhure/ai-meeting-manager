@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-   url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -16,24 +16,48 @@ model User {
   createdAt     DateTime  @default(now())
 
   // Relations
-  teamId        String?
-  team          Team?     @relation(fields: [teamId], references: [id])
-  meetings      Meeting[]
-  tasks         Task[]    @relation("AssignedTasks")
-  notifications Notification[]
-  accounts      Account[]
-  sessions      Session[]
+  teamMemberships TeamMember[]
+  meetings        Meeting[]
+  tasks           Task[]          @relation("AssignedTasks")
+  notifications   Notification[]
+  accounts        Account[]
+  sessions        Session[]
+  sentMessages    Message[]       @relation("SentMessages")
+  receivedMessages Message[]      @relation("ReceivedMessages")
+  ownedTeams      Team[]          @relation("TeamOwner")
 }
 
 model Team {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   name       String
-  inviteCode String    @unique @default(cuid())
-  createdAt  DateTime  @default(now())
+  inviteCode String   @unique @default(cuid())
+  createdAt  DateTime @default(now())
+
+  // Owner — the user who created the team
+  ownerId    String
+  owner      User     @relation("TeamOwner", fields: [ownerId], references: [id])
 
   // Relations
-  members    User[]
+  members    TeamMember[]
   meetings   Meeting[]
+  messages   Message[]
+}
+
+// Junction table — replaces teamId on User
+// Tracks membership + role + chat permission
+model TeamMember {
+  id       String   @id @default(cuid())
+  role     TeamRole @default(MEMBER)
+  canChat  Boolean  @default(true)
+  joinedAt DateTime @default(now())
+
+  // Relations
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId   String
+  team     Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId]) // one membership record per user per team
 }
 
 model Meeting {
@@ -68,6 +92,25 @@ model Task {
   assignee   User?     @relation("AssignedTasks", fields: [assigneeId], references: [id])
 }
 
+model Message {
+  id        String      @id @default(cuid())
+  content   String      @db.Text
+  createdAt DateTime    @default(now())
+  type      MessageType @default(GROUP)
+
+  // Sender
+  senderId   String
+  sender     User   @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  // Team context
+  teamId     String
+  team       Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  // For DMs only — null for group messages
+  receiverId String?
+  receiver   User?  @relation("ReceivedMessages", fields: [receiverId], references: [id])
+}
+
 model Notification {
   id        String   @id @default(cuid())
   message   String
@@ -79,7 +122,7 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// These 2 models are REQUIRED by Auth.js — don't modify them
+// Required by Auth.js
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -108,7 +151,7 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// Enums — fixed set of allowed values
+// Enums
 enum TaskStatus {
   TODO
   IN_PROGRESS
@@ -119,4 +162,15 @@ enum Priority {
   LOW
   MEDIUM
   HIGH
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum MessageType {
+  GROUP
+  DIRECT
 }

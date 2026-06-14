@@ -59,9 +59,9 @@ export async function getMeetings() {
   const session = await auth()
   if (!session?.user?.id) redirect("/login")
 
-  // Get user's teamId
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+  // Get user's team membership
+  const membership = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id },
     select: { teamId: true },
   })
 
@@ -71,7 +71,7 @@ export async function getMeetings() {
         // User's own meetings
         { userId: session.user.id },
         // Team meetings (if user is in a team)
-        ...(user?.teamId ? [{ teamId: user.teamId }] : []),
+        ...(membership?.teamId ? [{ teamId: membership.teamId }] : []),
       ],
     },
     include: {
