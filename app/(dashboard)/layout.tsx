@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { getUnreadCount } from "@/actions/notifications"
 import Sidebar from "@/components/layout/Sidebar"
 import NotificationListener from "@/components/notifications/NotificationListener"
+import { getUnreadMessageCount } from "@/actions/chat"
 
 export default async function DashboardLayout({
   children,
@@ -15,11 +16,12 @@ export default async function DashboardLayout({
   if (!session) redirect("/login");
 
     // Fetch unread count server-side and pass as prop
-  const unreadCount = await getUnreadCount()
+  const unreadCount = await getUnreadCount();
+  const unreadMessages = await getUnreadMessageCount(session.user.id);
 
   return (
     <div className="flex min-h-screen bg-gray-950">
-      <Sidebar user={session.user} unreadCount={unreadCount} />
+      <Sidebar user={session.user} unreadCount={unreadCount} unreadMessages={unreadMessages} />
            {/* 
         NotificationListener sits here invisibly.
         It connects to Pusher and listens for events.

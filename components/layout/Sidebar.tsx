@@ -13,6 +13,7 @@ interface SidebarProps {
     image?: string | null
   }
    unreadCount: number
+    unreadMessages: number
 }
 
 // Navigation items — easy to add more later
@@ -20,11 +21,12 @@ const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: "⊞" },
   { label: "Meetings", href: "/meetings", icon: "📋" },
   { label: "Tasks", href: "/tasks", icon: "✓" },
+   { label: "Chat", href: "/chat", icon: "💬" },   
   { label: "Team", href: "/team", icon: "👥" },
   { label: "Notifications", href: "/notifications", icon: "🔔" },
 ]
 
-export default function Sidebar({ user,unreadCount }: SidebarProps) {
+export default function Sidebar({ user,unreadCount,unreadMessages }: SidebarProps) {
   // usePathname — tells us the current URL path
   // Used to highlight the active nav item
   const pathname = usePathname()
@@ -42,7 +44,15 @@ export default function Sidebar({ user,unreadCount }: SidebarProps) {
         {navItems.map((item) => {
           // Is this the current page?
           const isActive = pathname === item.href ||
-            pathname.startsWith(item.href + "/")
+            pathname.startsWith(item.href + "/");
+
+             // Badge count per nav item
+          const badge =
+            item.href === "/notifications"
+              ? unreadCount
+              : item.href === "/chat"
+              ? unreadMessages
+              : 0
 
           return (
             <Link
@@ -54,13 +64,22 @@ export default function Sidebar({ user,unreadCount }: SidebarProps) {
                   : "text-gray-400 hover:bg-gray-800 hover:text-white"
               }`}
             >
-              <span>{item.icon}</span>
-              {item.label}
+               <span className="flex items-center gap-3">
+                <span>{item.icon}</span>
+                {item.label}
+              </span>
 
                {/* Show badge only on Notifications link */}
-              {item.href === "/notifications" && unreadCount > 0 && (
+              {/* {item.href === "/notifications" && unreadCount > 0 && (
                 <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-bold text-white">
                   {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )} */}
+
+                 {/* Badge */}
+              {badge > 0 && (
+                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                  {badge > 99 ? "99+" : badge}
                 </span>
               )}
             </Link>

@@ -61,6 +61,12 @@ export default function NotificationListener({
         // Play sound first, then refresh UI
       playNotificationSound()
       router.refresh()
+    });
+
+      // Also listen for DM events to update chat badge instantly
+    channel.bind("new-dm-notification", () => {
+      playNotificationSound()
+      router.refresh()
     })
 
     return () => {
