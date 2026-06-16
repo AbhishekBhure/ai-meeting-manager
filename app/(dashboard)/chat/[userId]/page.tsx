@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { getMyMembership } from "@/actions/team"
-import { getDirectMessages, markChatNotificationsAsRead, getUnreadDMCounts } from "@/actions/chat"
+import { getDirectMessages, markChatNotificationsAsRead, getUnreadDMCounts, getUnreadGroupMessageCount } from "@/actions/chat"
 import DirectMessage from "@/components/chat/DirectMessage"
 import Link from "next/link"
 import prisma from "@/lib/prisma"
@@ -17,10 +17,14 @@ export default async function DMPage({ params }: PageProps) {
   if (!session?.user?.id) redirect("/login")
 
   const membership = await getMyMembership();
-await markChatNotificationsAsRead(session.user.id);
   if (!membership) redirect("/team")
 
-    const dmCounts = await getUnreadDMCounts(session.user.id)
+  // Get unread counts FIRST before marking as read
+  const dmCounts = await getUnreadDMCounts(session.user.id);
+  const groupMessageCount = await getUnreadGroupMessageCount(session.user.id)
+  
+  // Now mark as read after capturing the counts
+  await markChatNotificationsAsRead(session.user.id);
 
   // Get the other user
   const otherUser = await prisma.user.findUnique({
@@ -60,6 +64,11 @@ await markChatNotificationsAsRead(session.user.id);
           >
             <span>👥</span>
             <span>{membership.team.name}</span>
+            {groupMessageCount > 0 && (
+              <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                {groupMessageCount}
+              </span>
+            )}
           </Link>
 
           <h2 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-gray-500">

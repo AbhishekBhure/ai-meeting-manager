@@ -275,3 +275,19 @@ export async function getUnreadDMCounts(userId: string) {
     return {}
   }
 }
+
+// GET UNREAD GROUP MESSAGE COUNT
+export async function getUnreadGroupMessageCount(userId: string) {
+  try {
+    const count = await prisma.notification.count({
+      where: {
+        userId,
+        read: false,
+        message: { contains: "sent a message in team chat" },
+      },
+    })
+    return count
+  } catch {
+    return 0
+  }
+}

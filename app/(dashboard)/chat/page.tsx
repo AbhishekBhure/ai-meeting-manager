@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { getMyMembership } from "@/actions/team"
-import { getGroupMessages, getUnreadDMCounts, markChatNotificationsAsRead } from "@/actions/chat"
+import { getGroupMessages, getUnreadDMCounts, markChatNotificationsAsRead, getUnreadGroupMessageCount } from "@/actions/chat"
 import GroupChat from "@/components/chat/GroupChat"
 import Link from "next/link"
 
@@ -11,7 +11,6 @@ export default async function ChatPage() {
   if (!session?.user?.id) redirect("/login")
 
   const membership = await getMyMembership();
-  await markChatNotificationsAsRead(session.user.id);
 
   if (!membership) {
     return (
@@ -29,8 +28,13 @@ export default async function ChatPage() {
     )
   }
 
+  // Get unread counts FIRST before marking as read
   const messages = await getGroupMessages(membership.teamId);
-    const dmCounts = await getUnreadDMCounts(session.user.id)
+  const dmCounts = await getUnreadDMCounts(session.user.id)
+  const groupMessageCount = await getUnreadGroupMessageCount(session.user.id)
+  
+  // Now mark as read after capturing the counts
+  await markChatNotificationsAsRead(session.user.id);
   const otherMembers = membership.team.members.filter(
     (m) => m.user.id !== session.user.id
   )
@@ -51,6 +55,11 @@ export default async function ChatPage() {
           >
             <span>👥</span>
             <span>{membership.team.name}</span>
+            {groupMessageCount > 0 && (
+              <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                {groupMessageCount}
+              </span>
+            )}
           </Link>
 
           {/* DM section */}
